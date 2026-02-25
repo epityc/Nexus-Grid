@@ -4,7 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import engine, Base
-from app.routers import auth, workbooks, sheets, cells, ai, ws
+from app.routers import auth, workbooks, sheets, cells, ai, ws, files
+import app.models  # noqa: F401 — ensure all models are registered with Base
 
 settings = get_settings()
 
@@ -38,6 +39,7 @@ app.include_router(workbooks.router, prefix="/api/v1")
 app.include_router(sheets.router, prefix="/api/v1")
 app.include_router(cells.router, prefix="/api/v1")
 app.include_router(ai.router, prefix="/api/v1")
+app.include_router(files.router, prefix="/api/v1")
 app.include_router(ws.router)  # WebSocket — no /api/v1 prefix
 
 

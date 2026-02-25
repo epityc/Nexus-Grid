@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.middleware.auth import get_current_user
 from app.models.user import User
-from app.services import ai_service, spreadsheet_service
+from app.services import ai_service, spreadsheet_service, file_service
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -71,6 +71,15 @@ class QueryRequest(BaseModel):
 
 
 class QueryResponse(BaseModel):
+    answer: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    file_ids: list[uuid.UUID] = []
+
+
+class ChatResponse(BaseModel):
     answer: str
 
 
@@ -137,6 +146,22 @@ async def suggest_values(
         payload.column_name, payload.existing_values, payload.count
     )
     return SuggestResponse(suggestions=suggestions)
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(
+    payload: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    file_contexts: list[str] = []
+    for fid in payload.file_ids:
+        f = await file_service.get_file(db, fid, current_user.id)
+        if f and f.extracted_text:
+            file_contexts.append(f"{f.original_name}:\n{f.extracted_text}")
+
+    answer = await ai_service.chat_with_files(payload.message, file_contexts)
+    return ChatResponse(answer=answer)
 
 
 @router.post("/query", response_model=QueryResponse)

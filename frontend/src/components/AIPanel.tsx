@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send, MessageSquare, Activity, Zap } from './icons'
 import { useAuth } from '../contexts/AuthContext'
-import api from '../api/client'
+import api, { chatWithFiles } from '../api/client'
+import FileMemory from './FileMemory'
 
 type Tab = 'nexus-ai' | 'logic-engine'
 
@@ -27,11 +28,18 @@ export default function AIPanel({ onOpenAuth }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [selectedFileIds, setSelectedFileIds] = useState<string[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  const toggleFile = (id: string) => {
+    setSelectedFileIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
 
   const sendMessage = async (text: string) => {
     if (!text.trim() || isLoading) return
@@ -51,13 +59,17 @@ export default function AIPanel({ onOpenAuth }: Props) {
     setIsLoading(true)
 
     try {
-      const res = await api.post('/ai/formula', {
-        description: text.trim(),
-      })
+      let answer: string
+      if (selectedFileIds.length > 0) {
+        answer = await chatWithFiles(text.trim(), selectedFileIds)
+      } else {
+        const res = await api.post('/ai/formula', { description: text.trim() })
+        answer = res.data.formula || res.data.insight || res.data.answer || 'Voici ma réponse.'
+      }
       const assistantMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: res.data.formula || res.data.insight || res.data.answer || 'Voici ma réponse.',
+        content: answer,
       }
       setMessages(prev => [...prev, assistantMsg])
     } catch {
@@ -126,7 +138,7 @@ export default function AIPanel({ onOpenAuth }: Props) {
                 className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-[85%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed ${
+                  className={`max-w-[85%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap ${
                     msg.role === 'user'
                       ? 'bg-indigo-600 text-white rounded-br-sm'
                       : 'bg-gray-100 text-gray-800 rounded-bl-sm'
@@ -168,6 +180,14 @@ export default function AIPanel({ onOpenAuth }: Props) {
             )}
           </div>
 
+          {/* File memory */}
+          <FileMemory
+            selectedIds={selectedFileIds}
+            onToggle={toggleFile}
+            token={token}
+            onOpenAuth={onOpenAuth}
+          />
+
           {/* Chat input */}
           <div className="p-3 border-t border-gray-100 shrink-0">
             <form onSubmit={handleSubmit} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
@@ -175,7 +195,11 @@ export default function AIPanel({ onOpenAuth }: Props) {
                 type="text"
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                placeholder="Instruire l'IA..."
+                placeholder={
+                  selectedFileIds.length > 0
+                    ? `Interroger ${selectedFileIds.length} fichier${selectedFileIds.length > 1 ? 's' : ''}…`
+                    : "Instruire l'IA…"
+                }
                 className="flex-1 bg-transparent text-[13px] text-gray-700 placeholder:text-gray-400 outline-none"
               />
               <button

@@ -108,6 +108,30 @@ async def suggest_values(column_name: str, existing_values: list[str], count: in
         return []
 
 
+async def chat_with_files(message: str, file_contexts: list[str]) -> str:
+    """Answer a user message using uploaded file contents as context."""
+    if file_contexts:
+        context_block = "\n\n".join(
+            f"--- Fichier {i + 1} ---\n{ctx[:4000]}"
+            for i, ctx in enumerate(file_contexts)
+        )
+        prompt = (
+            f"Voici le contenu des fichiers chargés en mémoire :\n\n{context_block}"
+            f"\n\n---\nInstruction de l'utilisateur : {message}"
+        )
+    else:
+        prompt = message
+
+    client = _get_client()
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=2048,
+        system=_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text.strip()
+
+
 async def natural_language_query(data: list[list[Any]], query: str) -> str:
     """Answer a natural language question about spreadsheet data."""
     rows = data[:500]
