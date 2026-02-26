@@ -83,6 +83,18 @@ class ChatResponse(BaseModel):
     answer: str
 
 
+class ImportRequest(BaseModel):
+    file_id: uuid.UUID
+    instruction: str
+
+
+class ImportResponse(BaseModel):
+    data: list[list[str]]
+    summary: str
+    rows: int
+    cols: int
+
+
 def _cells_to_grid(cells, row_start: int, col_start: int) -> list[list[Any]]:
     if not cells:
         return []
@@ -146,6 +158,35 @@ async def suggest_values(
         payload.column_name, payload.existing_values, payload.count
     )
     return SuggestResponse(suggestions=suggestions)
+
+
+@router.post("/import", response_model=ImportResponse)
+async def ai_import(
+    payload: ImportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """AI-assisted tabular import: cleans/transforms a file according to user instruction."""
+    f = await file_service.get_file(db, payload.file_id, current_user.id)
+    if not f:
+        raise HTTPException(status_code=404, detail="Fichier introuvable")
+    if f.file_type not in file_service.TABULAR_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Ce format ne peut pas être importé en tableau")
+
+    _, rows = file_service.get_grid_from_file(f)
+    if not rows:
+        raise HTTPException(status_code=422, detail="Impossible de lire les données de ce fichier")
+
+    # Build a CSV preview to send to the AI (limit to 500 rows to stay within token budget)
+    import csv, io
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerows(rows[:500])
+    csv_text = buf.getvalue()
+
+    data, summary = await ai_service.clean_and_import_csv(csv_text, payload.instruction)
+    max_cols = max((len(r) for r in data), default=0)
+    return ImportResponse(data=data, summary=summary, rows=len(data), cols=max_cols)
 
 
 @router.post("/chat", response_model=ChatResponse)

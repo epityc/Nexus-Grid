@@ -67,4 +67,31 @@ export async function chatWithFiles(
   return res.data.answer
 }
 
+export interface ParseResult {
+  separator: string | null
+  rows: number
+  cols: number
+  data: string[][]
+}
+
+export async function parseFile(fileId: string): Promise<ParseResult> {
+  const res = await api.get(`/files/${fileId}/parse`)
+  return res.data
+}
+
+export interface AiImportResult {
+  data: string[][]
+  summary: string
+  rows: number
+  cols: number
+}
+
+export async function aiImportFile(
+  fileId: string,
+  instruction: string,
+): Promise<AiImportResult> {
+  const res = await api.post('/ai/import', { file_id: fileId, instruction })
+  return res.data
+}
+
 export default api

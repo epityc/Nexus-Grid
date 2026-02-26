@@ -108,6 +108,41 @@ async def suggest_values(column_name: str, existing_values: list[str], count: in
         return []
 
 
+async def clean_and_import_csv(csv_text: str, instruction: str) -> tuple[list[list[str]], str]:
+    """
+    Use Claude to clean/transform tabular data according to user instruction.
+    Returns (cleaned 2D grid, human-readable summary).
+    """
+    prompt = (
+        f"Voici des données tabulaires (CSV) :\n\n{csv_text[:8000]}\n\n"
+        f"Instruction : {instruction}\n\n"
+        "Réponds en JSON avec exactement ce format :\n"
+        '{"summary": "...", "data": [["col1", "col2"], ["val1", "val2"]]}\n'
+        "- data : tableau 2D de chaînes (première ligne = en-têtes)\n"
+        "- summary : une phrase décrivant ce qui a été fait\n"
+        "N'écris rien d'autre que ce JSON."
+    )
+
+    client = _get_client()
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=4096,
+        system=_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    import json
+    text = response.content[0].text.strip()
+    # Strip potential markdown code fences
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    parsed = json.loads(text)
+    data: list[list[str]] = parsed.get("data", [])
+    summary: str = parsed.get("summary", "Import effectué.")
+    return data, summary
+
+
 async def chat_with_files(message: str, file_contexts: list[str]) -> str:
     """Answer a user message using uploaded file contents as context."""
     if file_contexts:

@@ -13,6 +13,7 @@ interface SpreadsheetContextType {
   stopEditing: () => void
   getCellValue: (row: number, col: number) => string
   cellRef: (row: number, col: number) => string
+  importGrid: (data: string[][], rowOffset?: number, colOffset?: number) => void
 }
 
 const SpreadsheetContext = createContext<SpreadsheetContextType | null>(null)
@@ -60,11 +61,26 @@ export function SpreadsheetProvider({ children }: { children: ReactNode }) {
     return `${colLetter(col)}${row + 1}`
   }, [])
 
+  const importGrid = useCallback((data: string[][], rowOffset = 0, colOffset = 0) => {
+    setCells(prev => {
+      const next = { ...prev }
+      data.forEach((row, r) => {
+        row.forEach((val, c) => {
+          const key = cellKey(r + rowOffset, c + colOffset)
+          if (val !== '') {
+            next[key] = val
+          }
+        })
+      })
+      return next
+    })
+  }, [])
+
   return (
     <SpreadsheetContext.Provider value={{
       cells, selectedCell, editingCell,
       setCell, selectCell, startEditing, stopEditing, getCellValue,
-      cellRef: cellRefFn,
+      cellRef: cellRefFn, importGrid,
     }}>
       {children}
     </SpreadsheetContext.Provider>
