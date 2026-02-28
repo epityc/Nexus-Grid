@@ -7,12 +7,13 @@ GET    /files/{id}/parse      Parse a tabular file → 2D grid + separator info
 DELETE /files/{file_id}       Delete a file
 """
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.auth import get_current_user
+from app.middleware.security import limiter
 from app.models.user import User
 from app.schemas.file import FileRead
 from app.services import file_service
@@ -28,7 +29,9 @@ class ParseResponse(BaseModel):
 
 
 @router.post("/upload", response_model=FileRead, status_code=201)
+@limiter.limit("10/minute")
 async def upload_file(
+    request: Request,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -46,6 +49,10 @@ async def upload_file(
 
     if len(content) > file_service.MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="Fichier trop volumineux (max 10 Mo)")
+
+    # Validate file signature (magic bytes) to prevent extension spoofing
+    if not file_service.validate_file_signature(content, ext):
+        raise HTTPException(status_code=400, detail="Le contenu du fichier ne correspond pas à son extension")
 
     try:
         extracted_text = file_service.extract_text(content, filename)

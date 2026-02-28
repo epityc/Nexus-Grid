@@ -14,6 +14,22 @@ from app.models.file import UploadedFile
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 ALLOWED_EXTENSIONS = {"pdf", "csv", "xlsx", "xls", "txt"}
 TABULAR_EXTENSIONS = {"csv", "xlsx", "xls"}
+MAX_CSV_ROWS = 10_000  # DoS protection: refuse files with more rows
+
+# Binary signatures (magic bytes) for non-text formats
+_FILE_SIGNATURES: dict[str, bytes] = {
+    "pdf":  b"%PDF-",
+    "xlsx": b"PK\x03\x04",       # ZIP container (Office Open XML)
+    "xls":  b"\xD0\xCF\x11\xE0", # Compound File Binary (legacy Office)
+}
+
+
+def validate_file_signature(content: bytes, ext: str) -> bool:
+    """Return True if file magic bytes match the declared extension."""
+    sig = _FILE_SIGNATURES.get(ext)
+    if sig is None:
+        return True  # CSV and TXT are plain text — no binary signature
+    return content[: len(sig)] == sig
 
 
 def _extension(filename: str) -> str:
@@ -48,10 +64,18 @@ def parse_csv_smart(text: str) -> tuple[str, list[list[str]]]:
     """
     Parse CSV text with auto-detected separator.
     Returns (separator, rows) where rows is a list of string lists.
+    Raises ValueError if the file exceeds MAX_CSV_ROWS (DoS protection).
     """
     sep = detect_csv_separator(text)
     reader = csv.reader(io.StringIO(text), delimiter=sep)
-    rows = [row for row in reader if any(cell.strip() for cell in row)]
+    rows: list[list[str]] = []
+    for row in reader:
+        if any(cell.strip() for cell in row):
+            rows.append(row)
+        if len(rows) > MAX_CSV_ROWS:
+            raise ValueError(
+                f"Fichier CSV trop volumineux : maximum {MAX_CSV_ROWS} lignes autorisées"
+            )
     return sep, rows
 
 

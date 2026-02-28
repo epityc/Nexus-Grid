@@ -1,5 +1,8 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
+
+_DEFAULT_SECRET = "dev-secret-key-change-in-production"
 
 
 class Settings(BaseSettings):
@@ -9,7 +12,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
 
     # Security
-    secret_key: str = "dev-secret-key-change-in-production"
+    secret_key: str = _DEFAULT_SECRET
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 30
@@ -25,6 +28,18 @@ class Settings(BaseSettings):
 
     # CORS
     allowed_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+
+    @model_validator(mode="after")
+    def check_production_secrets(self) -> "Settings":
+        if self.app_env == "production":
+            if self.secret_key == _DEFAULT_SECRET:
+                raise ValueError(
+                    "SECRET_KEY must be set to a strong random value in production. "
+                    "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+                )
+            if not self.anthropic_api_key:
+                raise ValueError("ANTHROPIC_API_KEY must be set in production")
+        return self
 
     @property
     def is_production(self) -> bool:

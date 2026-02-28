@@ -18,3 +18,4 @@ python-dotenv==1.0.1
 pypdf==4.3.1
 openpyxl==3.1.5
 xlrd==2.0.1
+slowapi==0.1.9

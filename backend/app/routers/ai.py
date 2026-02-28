@@ -9,12 +9,13 @@ POST /ai/query            Natural language query over sheet data
 """
 import uuid
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.auth import get_current_user
+from app.middleware.security import limiter
 from app.models.user import User
 from app.services import ai_service, spreadsheet_service, file_service
 
@@ -111,7 +112,9 @@ def _cells_to_grid(cells, row_start: int, col_start: int) -> list[list[Any]]:
 
 
 @router.post("/formula", response_model=FormulaResponse)
+@limiter.limit("30/minute")
 async def generate_formula(
+    request: Request,
     payload: FormulaRequest,
     current_user: User = Depends(get_current_user),
 ):
@@ -120,7 +123,9 @@ async def generate_formula(
 
 
 @router.post("/explain", response_model=ExplainResponse)
+@limiter.limit("30/minute")
 async def explain_formula(
+    request: Request,
     payload: ExplainRequest,
     current_user: User = Depends(get_current_user),
 ):
@@ -129,7 +134,9 @@ async def explain_formula(
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
+@limiter.limit("20/minute")
 async def analyze_data(
+    request: Request,
     payload: AnalyzeRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -150,7 +157,9 @@ async def analyze_data(
 
 
 @router.post("/suggest", response_model=SuggestResponse)
+@limiter.limit("30/minute")
 async def suggest_values(
+    request: Request,
     payload: SuggestRequest,
     current_user: User = Depends(get_current_user),
 ):
@@ -161,7 +170,9 @@ async def suggest_values(
 
 
 @router.post("/import", response_model=ImportResponse)
+@limiter.limit("10/minute")
 async def ai_import(
+    request: Request,
     payload: ImportRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -190,7 +201,9 @@ async def ai_import(
 
 
 @router.post("/chat", response_model=ChatResponse)
+@limiter.limit("20/minute")
 async def chat(
+    request: Request,
     payload: ChatRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -206,7 +219,9 @@ async def chat(
 
 
 @router.post("/query", response_model=QueryResponse)
+@limiter.limit("20/minute")
 async def natural_language_query(
+    request: Request,
     payload: QueryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
