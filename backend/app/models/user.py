@@ -27,3 +27,6 @@ class User(Base):
     workbooks: Mapped[list["Workbook"]] = relationship(  # noqa: F821
         "Workbook", back_populates="owner", cascade="all, delete-orphan"
     )
+    uploaded_files: Mapped[list["UploadedFile"]] = relationship(  # noqa: F821
+        "UploadedFile", back_populates="user", cascade="all, delete-orphan"
+    )

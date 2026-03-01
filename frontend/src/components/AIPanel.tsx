@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, MessageSquare, Activity, Zap } from './icons'
+import { Send, Activity, Zap } from './icons'
 import { useAuth } from '../contexts/AuthContext'
-import api from '../api/client'
+import { chatWithFiles, computeWithSpreadsheet, ComputeResult } from '../api/client'
+import FileMemory from './FileMemory'
+import { useSpreadsheet } from '../contexts/SpreadsheetContext'
 
 type Tab = 'nexus-ai' | 'logic-engine'
 
@@ -9,12 +11,13 @@ interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
+  compute?: ComputeResult // structured formula/value response
 }
 
 const EXAMPLES = [
-  'Nettoie la colonne B',
-  'Prédit les ventes de juin',
-  'Calcule la rentabilité',
+  'Calcule la somme de A1 à A10',
+  'Génère une formule de pourcentage',
+  'Analyse les données de ce tableau',
 ]
 
 interface Props {
@@ -23,15 +26,28 @@ interface Props {
 
 export default function AIPanel({ onOpenAuth }: Props) {
   const { token } = useAuth()
+  const { selectedCell, setCell, cellRef, getCellsAsCsv } = useSpreadsheet()
   const [tab, setTab] = useState<Tab>('nexus-ai')
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [selectedFileIds, setSelectedFileIds] = useState<string[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  const toggleFile = (id: string) => {
+    setSelectedFileIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  const insertIntoCell = (content: string) => {
+    if (!selectedCell) return
+    setCell(selectedCell.row, selectedCell.col, content)
+  }
 
   const sendMessage = async (text: string) => {
     if (!text.trim() || isLoading) return
@@ -51,22 +67,45 @@ export default function AIPanel({ onOpenAuth }: Props) {
     setIsLoading(true)
 
     try {
-      const res = await api.post('/ai/formula', {
-        description: text.trim(),
-      })
-      const assistantMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: res.data.formula || res.data.insight || res.data.answer || 'Voici ma réponse.',
+      let assistantMsg: Message
+
+      if (selectedFileIds.length > 0) {
+        // Chat with file context
+        const answer = await chatWithFiles(text.trim(), selectedFileIds)
+        assistantMsg = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: answer,
+        }
+      } else {
+        // AI compute with spreadsheet context
+        const csv = getCellsAsCsv()
+        const cellName = selectedCell ? cellRef(selectedCell.row, selectedCell.col) : ''
+        const result = await computeWithSpreadsheet(text.trim(), csv, cellName)
+
+        if (result.type === 'explanation') {
+          assistantMsg = {
+            id: (Date.now() + 1).toString(),
+            role: 'assistant',
+            content: result.content,
+          }
+        } else {
+          assistantMsg = {
+            id: (Date.now() + 1).toString(),
+            role: 'assistant',
+            content: result.explanation || result.content,
+            compute: result,
+          }
+        }
       }
+
       setMessages(prev => [...prev, assistantMsg])
     } catch {
-      const errMsg: Message = {
+      setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: 'Impossible de contacter le moteur IA. Vérifiez votre connexion.',
-      }
-      setMessages(prev => [...prev, errMsg])
+      }])
     } finally {
       setIsLoading(false)
     }
@@ -125,14 +164,34 @@ export default function AIPanel({ onOpenAuth }: Props) {
                 key={msg.id}
                 className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                <div
-                  className={`max-w-[85%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed ${
-                    msg.role === 'user'
-                      ? 'bg-indigo-600 text-white rounded-br-sm'
-                      : 'bg-gray-100 text-gray-800 rounded-bl-sm'
-                  }`}
-                >
-                  {msg.content}
+                <div className={`max-w-[90%] flex flex-col gap-1.5 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  <div
+                    className={`rounded-2xl px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap ${
+                      msg.role === 'user'
+                        ? 'bg-indigo-600 text-white rounded-br-sm'
+                        : 'bg-gray-100 text-gray-800 rounded-bl-sm'
+                    }`}
+                  >
+                    {msg.content}
+                  </div>
+
+                  {/* Formula / value insert card */}
+                  {msg.compute && (msg.compute.type === 'formula' || msg.compute.type === 'value') && (
+                    <div className="w-full bg-indigo-50 border border-indigo-100 rounded-xl p-2.5">
+                      <code className="block text-xs font-mono text-indigo-700 mb-2 break-all">
+                        {msg.compute.content}
+                      </code>
+                      <button
+                        onClick={() => insertIntoCell(msg.compute!.content)}
+                        disabled={!selectedCell}
+                        className="w-full text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg py-1.5 transition-colors"
+                      >
+                        {selectedCell
+                          ? `Insérer dans ${cellRef(selectedCell.row, selectedCell.col)}`
+                          : 'Sélectionnez une cellule'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -154,7 +213,7 @@ export default function AIPanel({ onOpenAuth }: Props) {
 
             <div ref={messagesEndRef} />
 
-            {/* History section (when messages exist) */}
+            {/* Empty state */}
             {messages.length === 0 && (
               <div className="mt-2">
                 <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase mb-3">
@@ -168,6 +227,14 @@ export default function AIPanel({ onOpenAuth }: Props) {
             )}
           </div>
 
+          {/* File memory */}
+          <FileMemory
+            selectedIds={selectedFileIds}
+            onToggle={toggleFile}
+            token={token}
+            onOpenAuth={onOpenAuth}
+          />
+
           {/* Chat input */}
           <div className="p-3 border-t border-gray-100 shrink-0">
             <form onSubmit={handleSubmit} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
@@ -175,7 +242,13 @@ export default function AIPanel({ onOpenAuth }: Props) {
                 type="text"
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                placeholder="Instruire l'IA..."
+                placeholder={
+                  selectedFileIds.length > 0
+                    ? `Interroger ${selectedFileIds.length} fichier${selectedFileIds.length > 1 ? 's' : ''}…`
+                    : selectedCell
+                      ? `Demander pour ${cellRef(selectedCell.row, selectedCell.col)}…`
+                      : "Instruire l'IA…"
+                }
                 className="flex-1 bg-transparent text-[13px] text-gray-700 placeholder:text-gray-400 outline-none"
               />
               <button
@@ -187,7 +260,7 @@ export default function AIPanel({ onOpenAuth }: Props) {
               </button>
             </form>
             <p className="text-[10px] text-gray-400 text-center mt-2 leading-relaxed">
-              Nexus Grid utilise le moteur Logic propriétaire et Gemini 3 Pro.
+              L'IA voit votre feuille de calcul en temps réel.
             </p>
           </div>
         </>

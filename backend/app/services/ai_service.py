@@ -108,6 +108,122 @@ async def suggest_values(column_name: str, existing_values: list[str], count: in
         return []
 
 
+async def clean_and_import_csv(csv_text: str, instruction: str) -> tuple[list[list[str]], str]:
+    """
+    Use Claude to clean/transform tabular data according to user instruction.
+    Returns (cleaned 2D grid, human-readable summary).
+    """
+    prompt = (
+        f"Voici des données tabulaires (CSV) :\n\n{csv_text[:8000]}\n\n"
+        f"Instruction : {instruction}\n\n"
+        "Réponds en JSON avec exactement ce format :\n"
+        '{"summary": "...", "data": [["col1", "col2"], ["val1", "val2"]]}\n'
+        "- data : tableau 2D de chaînes (première ligne = en-têtes)\n"
+        "- summary : une phrase décrivant ce qui a été fait\n"
+        "N'écris rien d'autre que ce JSON."
+    )
+
+    client = _get_client()
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=4096,
+        system=_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    import json
+    text = response.content[0].text.strip()
+    # Strip potential markdown code fences
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    parsed = json.loads(text)
+    data: list[list[str]] = parsed.get("data", [])
+    summary: str = parsed.get("summary", "Import effectué.")
+    return data, summary
+
+
+async def chat_with_files(message: str, file_contexts: list[str]) -> str:
+    """Answer a user message using uploaded file contents as context."""
+    if file_contexts:
+        context_block = "\n\n".join(
+            f"--- Fichier {i + 1} ---\n{ctx[:4000]}"
+            for i, ctx in enumerate(file_contexts)
+        )
+        prompt = (
+            f"Voici le contenu des fichiers chargés en mémoire :\n\n{context_block}"
+            f"\n\n---\nInstruction de l'utilisateur : {message}"
+        )
+    else:
+        prompt = message
+
+    client = _get_client()
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=2048,
+        system=_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text.strip()
+
+
+async def compute_with_spreadsheet(
+    instruction: str,
+    spreadsheet_csv: str,
+    selected_cell: str,
+) -> dict:
+    """
+    Given the current spreadsheet state and a user instruction, return one of:
+    - type="formula"     : an Excel formula to insert (content starts with '=')
+    - type="value"       : a direct computed value
+    - type="explanation" : a text answer/analysis
+    """
+    context = ""
+    if spreadsheet_csv:
+        cell_info = f" (cellule sélectionnée : {selected_cell})" if selected_cell else ""
+        context = (
+            f"Contenu actuel de la feuille de calcul (TSV){cell_info} :\n"
+            f"{spreadsheet_csv[:3000]}\n\n"
+        )
+
+    prompt = (
+        f"{context}"
+        f"Instruction de l'utilisateur : {instruction}\n\n"
+        "Réponds en JSON avec exactement ce format :\n"
+        '{"type": "formula", "content": "...", "explanation": "..."}\n'
+        "Règles :\n"
+        '- type="formula" si tu génères une formule Excel (content DOIT commencer par \'=\')\n'
+        '- type="value" si tu fournis une valeur directe (nombre, texte)\n'
+        '- type="explanation" pour toute analyse ou réponse textuelle\n'
+        "- content : la formule, valeur, ou explication complète\n"
+        "- explanation : une phrase courte décrivant la formule/valeur (vide si type=explanation)\n"
+        "N'écris rien d'autre que ce JSON."
+    )
+
+    client = _get_client()
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1024,
+        system=_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    import json
+    text = response.content[0].text.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    try:
+        result = json.loads(text)
+        return {
+            "type": result.get("type", "explanation"),
+            "content": result.get("content", ""),
+            "explanation": result.get("explanation", ""),
+        }
+    except json.JSONDecodeError:
+        return {"type": "explanation", "content": text, "explanation": ""}
+
+
 async def natural_language_query(data: list[list[Any]], query: str) -> str:
     """Answer a natural language question about spreadsheet data."""
     rows = data[:500]
