@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+import { evaluateCell } from '../utils/formulaEngine'
 
 export interface CellCoord { row: number; col: number }
 export type CellData = Record<string, string> // key = "r,c"
@@ -12,8 +13,10 @@ interface SpreadsheetContextType {
   startEditing: (coord: CellCoord) => void
   stopEditing: () => void
   getCellValue: (row: number, col: number) => string
+  getComputedValue: (row: number, col: number) => string
   cellRef: (row: number, col: number) => string
   importGrid: (data: string[][], rowOffset?: number, colOffset?: number) => void
+  getCellsAsCsv: () => string
 }
 
 const SpreadsheetContext = createContext<SpreadsheetContextType | null>(null)
@@ -57,6 +60,13 @@ export function SpreadsheetProvider({ children }: { children: ReactNode }) {
     return cells[cellKey(row, col)] ?? ''
   }, [cells])
 
+  // Returns the evaluated/computed value of a cell (resolves formulas)
+  const getComputedValue = useCallback((row: number, col: number) => {
+    const raw = cells[cellKey(row, col)] ?? ''
+    if (!raw.startsWith('=')) return raw
+    return evaluateCell(raw, (r, c) => cells[cellKey(r, c)] ?? '')
+  }, [cells])
+
   const cellRefFn = useCallback((row: number, col: number) => {
     return `${colLetter(col)}${row + 1}`
   }, [])
@@ -76,11 +86,36 @@ export function SpreadsheetProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  // Serialize spreadsheet as tab-separated values for AI context
+  const getCellsAsCsv = useCallback(() => {
+    const entries = Object.entries(cells)
+    if (entries.length === 0) return ''
+    let maxRow = 0, maxCol = 0
+    entries.forEach(([key]) => {
+      const [r, c] = key.split(',').map(Number)
+      maxRow = Math.max(maxRow, r)
+      maxCol = Math.max(maxCol, c)
+    })
+    const getter = (r: number, c: number) => cells[cellKey(r, c)] ?? ''
+    const lines: string[] = []
+    for (let r = 0; r <= maxRow; r++) {
+      const row: string[] = []
+      for (let c = 0; c <= maxCol; c++) {
+        const raw = cells[cellKey(r, c)] ?? ''
+        const display = raw.startsWith('=') ? evaluateCell(raw, getter) : raw
+        row.push(display)
+      }
+      lines.push(row.join('\t'))
+    }
+    return lines.join('\n')
+  }, [cells])
+
   return (
     <SpreadsheetContext.Provider value={{
       cells, selectedCell, editingCell,
-      setCell, selectCell, startEditing, stopEditing, getCellValue,
-      cellRef: cellRefFn, importGrid,
+      setCell, selectCell, startEditing, stopEditing,
+      getCellValue, getComputedValue,
+      cellRef: cellRefFn, importGrid, getCellsAsCsv,
     }}>
       {children}
     </SpreadsheetContext.Provider>

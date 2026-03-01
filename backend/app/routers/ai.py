@@ -96,6 +96,18 @@ class ImportResponse(BaseModel):
     cols: int
 
 
+class ComputeRequest(BaseModel):
+    instruction: str
+    spreadsheet_csv: str = ""
+    selected_cell: str = ""
+
+
+class ComputeResponse(BaseModel):
+    type: str  # "formula" | "value" | "explanation"
+    content: str
+    explanation: str
+
+
 def _cells_to_grid(cells, row_start: int, col_start: int) -> list[list[Any]]:
     if not cells:
         return []
@@ -239,3 +251,19 @@ async def natural_language_query(
     grid = _cells_to_grid(cells, payload.row_start, payload.col_start)
     answer = await ai_service.natural_language_query(grid, payload.query)
     return QueryResponse(answer=answer)
+
+
+@router.post("/compute", response_model=ComputeResponse)
+@limiter.limit("30/minute")
+async def compute(
+    request: Request,
+    payload: ComputeRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Generate a formula or value with full spreadsheet context."""
+    result = await ai_service.compute_with_spreadsheet(
+        payload.instruction,
+        payload.spreadsheet_csv,
+        payload.selected_cell,
+    )
+    return ComputeResponse(**result)

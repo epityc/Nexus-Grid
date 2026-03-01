@@ -167,6 +167,63 @@ async def chat_with_files(message: str, file_contexts: list[str]) -> str:
     return response.content[0].text.strip()
 
 
+async def compute_with_spreadsheet(
+    instruction: str,
+    spreadsheet_csv: str,
+    selected_cell: str,
+) -> dict:
+    """
+    Given the current spreadsheet state and a user instruction, return one of:
+    - type="formula"     : an Excel formula to insert (content starts with '=')
+    - type="value"       : a direct computed value
+    - type="explanation" : a text answer/analysis
+    """
+    context = ""
+    if spreadsheet_csv:
+        cell_info = f" (cellule sélectionnée : {selected_cell})" if selected_cell else ""
+        context = (
+            f"Contenu actuel de la feuille de calcul (TSV){cell_info} :\n"
+            f"{spreadsheet_csv[:3000]}\n\n"
+        )
+
+    prompt = (
+        f"{context}"
+        f"Instruction de l'utilisateur : {instruction}\n\n"
+        "Réponds en JSON avec exactement ce format :\n"
+        '{"type": "formula", "content": "...", "explanation": "..."}\n'
+        "Règles :\n"
+        '- type="formula" si tu génères une formule Excel (content DOIT commencer par \'=\')\n'
+        '- type="value" si tu fournis une valeur directe (nombre, texte)\n'
+        '- type="explanation" pour toute analyse ou réponse textuelle\n'
+        "- content : la formule, valeur, ou explication complète\n"
+        "- explanation : une phrase courte décrivant la formule/valeur (vide si type=explanation)\n"
+        "N'écris rien d'autre que ce JSON."
+    )
+
+    client = _get_client()
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1024,
+        system=_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    import json
+    text = response.content[0].text.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    try:
+        result = json.loads(text)
+        return {
+            "type": result.get("type", "explanation"),
+            "content": result.get("content", ""),
+            "explanation": result.get("explanation", ""),
+        }
+    except json.JSONDecodeError:
+        return {"type": "explanation", "content": text, "explanation": ""}
+
+
 async def natural_language_query(data: list[list[Any]], query: str) -> str:
     """Answer a natural language question about spreadsheet data."""
     rows = data[:500]

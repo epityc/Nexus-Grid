@@ -94,4 +94,25 @@ export async function aiImportFile(
   return res.data
 }
 
+// ── AI compute (formula generation with spreadsheet context) ──────────────────
+
+export interface ComputeResult {
+  type: 'formula' | 'value' | 'explanation'
+  content: string
+  explanation: string
+}
+
+export async function computeWithSpreadsheet(
+  instruction: string,
+  spreadsheetCsv: string,
+  selectedCell: string,
+): Promise<ComputeResult> {
+  const res = await api.post('/ai/compute', {
+    instruction,
+    spreadsheet_csv: spreadsheetCsv,
+    selected_cell: selectedCell,
+  })
+  return res.data
+}
+
 export default api

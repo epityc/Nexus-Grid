@@ -12,7 +12,8 @@ function colLetter(col: number) {
 interface CellProps {
   row: number
   col: number
-  value: string
+  rawValue: string      // raw formula/text (shown when editing)
+  displayValue: string  // computed result (shown when not editing)
   isSelected: boolean
   isEditing: boolean
   onSelect: (coord: CellCoord) => void
@@ -22,7 +23,7 @@ interface CellProps {
 }
 
 const Cell = memo(function Cell({
-  row, col, value, isSelected, isEditing,
+  row, col, rawValue, displayValue, isSelected, isEditing,
   onSelect, onStartEdit, onChange, onKeyDown,
 }: CellProps) {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -33,6 +34,9 @@ const Cell = memo(function Cell({
       inputRef.current.select()
     }
   }, [isEditing])
+
+  // Detect if display value looks numeric (right-align numbers like Excel)
+  const isNumeric = !isEditing && displayValue !== '' && !isNaN(Number(displayValue))
 
   return (
     <td
@@ -46,14 +50,17 @@ const Cell = memo(function Cell({
         <input
           ref={inputRef}
           className="cell-input"
-          value={value}
+          value={rawValue}
           onChange={e => onChange(row, col, e.target.value)}
           onKeyDown={e => onKeyDown(e, row, col)}
           onBlur={() => { /* commit on blur handled by context */ }}
         />
       ) : (
-        <span className="block px-1.5 text-[13px] text-gray-800 truncate leading-7 h-7">
-          {value}
+        <span className={`block px-1.5 text-[13px] truncate leading-7 h-7 ${
+          displayValue.startsWith('#') ? 'text-red-500' :
+          isNumeric ? 'text-gray-800 text-right' : 'text-gray-800'
+        }`}>
+          {displayValue}
         </span>
       )}
     </td>
@@ -64,7 +71,7 @@ const Cell = memo(function Cell({
 export default function Spreadsheet() {
   const {
     selectedCell, editingCell,
-    getCellValue, setCell, selectCell, startEditing, stopEditing,
+    getCellValue, getComputedValue, setCell, selectCell, startEditing, stopEditing,
     cellRef,
   } = useSpreadsheet()
 
@@ -197,7 +204,8 @@ export default function Spreadsheet() {
                     key={col}
                     row={row}
                     col={col}
-                    value={getCellValue(row, col)}
+                    rawValue={getCellValue(row, col)}
+                    displayValue={getComputedValue(row, col)}
                     isSelected={isSelected}
                     isEditing={isEditing}
                     onSelect={selectCell}
