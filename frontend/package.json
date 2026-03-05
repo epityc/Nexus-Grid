@@ -10,8 +10,7 @@
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "axios": "^1.7.7",
-    "hyperformula": "^2.7.0"
+    "axios": "^1.7.7"
   },
   "devDependencies": {
     "@types/react": "^18.3.11",

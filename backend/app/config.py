@@ -20,9 +20,6 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://postgres:password@localhost:5432/nexusgrid"
 
-    # Redis
-    redis_url: str = "redis://localhost:6379/0"
-
     # Anthropic
     anthropic_api_key: str = ""
 
